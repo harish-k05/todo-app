@@ -91,7 +91,9 @@ const Task = (props) => {
               styles.deleteButtonBg,
               {
                 backgroundColor:
-                  theme.deleteButtonBg || (isDarkMode ? "#252526" : "#F5F5F5"),
+                  props.completed
+                    ? theme.accent
+                    : theme.deleteButtonBg || (isDarkMode ? "#252526" : "#F5F5F5"),
               },
             ]}
           >
@@ -100,7 +102,9 @@ const Task = (props) => {
               size={16}
               color={
                 props.completed
-                  ? "#FFFFFF"
+                  ? isDarkMode
+                    ? "#1E1E1E"
+                    : "#1E1E1E"
                   : theme.textTertiary || (isDarkMode ? "#858585" : "#6B6B6B")
               }
             />

@@ -340,14 +340,28 @@ export default function App() {
             </TouchableOpacity>
             {totalCount > 0 && (
             <TouchableOpacity
-              style={[styles.deleteAllButton, { backgroundColor: theme.deleteButtonBg }]}
+              style={[
+                styles.deleteAllButton,
+                {
+                  backgroundColor:
+                    completedCount === totalCount && totalCount > 0
+                      ? theme.accent
+                      : theme.deleteButtonBg,
+                },
+              ]}
               onPress={handleDeleteAll}
               activeOpacity={0.7}
             >
               <Ionicons 
                 name="trash-outline" 
                 size={22} 
-                color={completedCount === totalCount && totalCount > 0 ? "#FFFFFF" : theme.textTertiary} 
+                color={
+                  completedCount === totalCount && totalCount > 0
+                    ? isDarkMode
+                      ? '#1E1E1E'
+                      : '#1E1E1E'
+                    : theme.textTertiary
+                } 
               />
             </TouchableOpacity>
             )}
