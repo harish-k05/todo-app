@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -195,47 +195,62 @@ export default function App() {
     }
   };
 
-  const saveTasks = async (tasksToSave) => {
+  const saveTasks = useCallback(async (tasksToSave) => {
     try {
       if (Array.isArray(tasksToSave)) {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasksToSave));
       } else {
-        console.error('Invalid tasks data format');
+        console.error("Invalid tasks data format");
       }
     } catch (error) {
       console.error("Error saving tasks:", error);
       // Optionally show user feedback
       Alert.alert("Error", "Failed to save tasks. Please try again.");
     }
-  };
+  }, []);
 
-  const handleTogglePin = (taskId) => {
-    const updatedTasks = tasks.map((task) =>
-      task.id === taskId
-        ? {
-            ...task,
-            // keep dueDate unchanged so unpin restores original date
-            pinned: !task.pinned,
-          }
-        : task
-    );
-    setTasks(updatedTasks);
-    saveTasks(updatedTasks);
-  };
+  const handleTogglePin = useCallback(
+    (taskId) => {
+      setTasks((prev) => {
+        const updated = prev.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                // keep dueDate unchanged so unpin restores original date
+                pinned: !task.pinned,
+              }
+            : task
+        );
+        saveTasks(updated);
+        return updated;
+      });
+    },
+    [saveTasks]
+  );
 
-  const handleToggleTask = (taskId) => {
-    const updatedTasks = tasks.map((task) =>
-      task.id === taskId ? { ...task, completed: !task.completed } : task
-    );
-    setTasks(updatedTasks);
-    saveTasks(updatedTasks);
-  };
+  const handleToggleTask = useCallback(
+    (taskId) => {
+      setTasks((prev) => {
+        const updated = prev.map((task) =>
+          task.id === taskId ? { ...task, completed: !task.completed } : task
+        );
+        saveTasks(updated);
+        return updated;
+      });
+    },
+    [saveTasks]
+  );
 
-  const handleDeleteTask = (taskId) => {
-    const updatedTasks = tasks.filter((task) => task.id !== taskId);
-    setTasks(updatedTasks);
-    saveTasks(updatedTasks);
-  };
+  const handleDeleteTask = useCallback(
+    (taskId) => {
+      setTasks((prev) => {
+        const updated = prev.filter((task) => task.id !== taskId);
+        saveTasks(updated);
+        return updated;
+      });
+    },
+    [saveTasks]
+  );
 
   const handleDeleteAll = () => {
     if (tasks.length === 0) {
@@ -352,25 +367,27 @@ export default function App() {
   };
 
   // Group tasks by dueDate and separate pinned / undated tasks
-  const groupedTasks = tasks.reduce(
-    (acc, task) => {
-      if (task.pinned) {
-        acc.pinned.push(task);
-      } else if (task.dueDate) {
-        if (!acc.byDate[task.dueDate]) {
-          acc.byDate[task.dueDate] = [];
+  const { groupedTasks, sortedDates } = useMemo(() => {
+    const grouped = tasks.reduce(
+      (acc, task) => {
+        if (task.pinned) {
+          acc.pinned.push(task);
+        } else if (task.dueDate) {
+          if (!acc.byDate[task.dueDate]) {
+            acc.byDate[task.dueDate] = [];
+          }
+          acc.byDate[task.dueDate].push(task);
+        } else {
+          acc.undated.push(task);
         }
-        acc.byDate[task.dueDate].push(task);
-      } else {
-        acc.undated.push(task);
-      }
-      return acc;
-    },
-    { pinned: [], byDate: {}, undated: [] }
-  );
+        return acc;
+      },
+      { pinned: [], byDate: {}, undated: [] }
+    );
 
-  // Sort dates chronologically (earliest first)
-  const sortedDates = Object.keys(groupedTasks.byDate).sort();
+    const dates = Object.keys(grouped.byDate).sort();
+    return { groupedTasks: grouped, sortedDates: dates };
+  }, [tasks]);
 
   // Friendly date labels (timezone-safe, based on YYYY-MM-DD string)
   const formatDateLabel = (dateString) => {
@@ -401,9 +418,16 @@ export default function App() {
   };
 
   const { day, month, year, dayName } = getCurrentDate();
-  const completedCount = tasks.filter((task) => task.completed).length;
-  const totalCount = tasks.length;
-  const progressPercentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+  const { completedCount, totalCount, progressPercentage } = useMemo(() => {
+    const completed = tasks.filter((task) => task.completed).length;
+    const total = tasks.length;
+    return {
+      completedCount: completed,
+      totalCount: total,
+      progressPercentage: total > 0 ? (completed / total) * 100 : 0,
+    };
+  }, [tasks]);
 
   const EmptyState = () => (
     <View style={styles.emptyContainer}>

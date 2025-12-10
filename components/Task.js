@@ -221,4 +221,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default Task;
+export default React.memo(Task);
