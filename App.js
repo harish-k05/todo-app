@@ -73,7 +73,7 @@ export default function App() {
   const [isInputVisible, setIsInputVisible] = useState(false);
   const [newTaskText, setNewTaskText] = useState("");
   const [editingTask, setEditingTask] = useState(null);
-  const fadeAnim = new Animated.Value(0);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const inputBarAnim = useRef(new Animated.Value(0)).current;
   const keyboardHeight = useRef(new Animated.Value(0)).current;
   const inputRef = useRef(null);
@@ -99,7 +99,7 @@ export default function App() {
     const keyboardWillShowListener = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
       (e) => {
-        const extraSpacing = 30; // Extra spacing above keyboard
+        const extraSpacing = 10;
         Animated.timing(keyboardHeight, {
           toValue: -(e.endCoordinates.height + extraSpacing),
           duration: Platform.OS === "ios" ? e.duration || 250 : 100,
@@ -129,7 +129,13 @@ export default function App() {
     try {
       const storedTasks = await AsyncStorage.getItem(STORAGE_KEY);
       if (storedTasks) {
-        setTasks(JSON.parse(storedTasks));
+        const parsedTasks = JSON.parse(storedTasks);
+        if (Array.isArray(parsedTasks)) {
+          setTasks(parsedTasks);
+        } else {
+          console.warn('Invalid tasks format in storage');
+          setTasks([]);
+        }
       } else {
         // Default tasks for first time users
         const defaultTasks = [
@@ -145,15 +151,22 @@ export default function App() {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(defaultTasks));
       }
     } catch (error) {
-      console.log("Error loading tasks:", error);
+      console.error("Error loading tasks:", error);
+      setTasks([]); // Fallback to empty array
     }
   };
 
   const saveTasks = async (tasksToSave) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasksToSave));
+      if (Array.isArray(tasksToSave)) {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasksToSave));
+      } else {
+        console.error('Invalid tasks data format');
+      }
     } catch (error) {
-      console.log("Error saving tasks:", error);
+      console.error("Error saving tasks:", error);
+      // Optionally show user feedback
+      Alert.alert("Error", "Failed to save tasks. Please try again.");
     }
   };
 
@@ -277,7 +290,7 @@ export default function App() {
         friction: 11,
       }).start();
     }
-  }, [isInputVisible]);
+  }, [isInputVisible, inputBarAnim]);
 
   const getCurrentDate = () => {
     const now = new Date();
@@ -308,6 +321,11 @@ export default function App() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <KeyboardAvoidingView 
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
       {/* Backdrop */}
       {isInputVisible && (
         <TouchableOpacity
@@ -341,13 +359,10 @@ export default function App() {
             {totalCount > 0 && (
             <TouchableOpacity
               style={[
-                styles.deleteAllButton,
-                {
-                  backgroundColor:
-                    completedCount === totalCount && totalCount > 0
-                      ? theme.accent
-                      : theme.deleteButtonBg,
-                },
+                styles.deleteAllButton, 
+                { 
+                  backgroundColor: completedCount === totalCount && totalCount > 0 ? theme.accent : theme.deleteButtonBg
+                }
               ]}
               onPress={handleDeleteAll}
               activeOpacity={0.7}
@@ -355,13 +370,7 @@ export default function App() {
               <Ionicons 
                 name="trash-outline" 
                 size={22} 
-                color={
-                  completedCount === totalCount && totalCount > 0
-                    ? isDarkMode
-                      ? '#1E1E1E'
-                      : '#1E1E1E'
-                    : theme.textTertiary
-                } 
+                color={completedCount === totalCount && totalCount > 0 ? "#1E1E1E" : theme.textTertiary} 
               />
             </TouchableOpacity>
             )}
@@ -389,6 +398,7 @@ export default function App() {
         {tasks.length === 0 ? (
           <EmptyState />
         ) : (
+          <View style={styles.taskContainer}>
             <FlatList
               data={tasks}
               keyExtractor={(item) => item.id}
@@ -407,6 +417,7 @@ export default function App() {
               contentContainerStyle={styles.taskList}
               showsVerticalScrollIndicator={false}
             />
+          </View>
         )}
 
         {/* Floating Action Button */}
@@ -430,13 +441,10 @@ export default function App() {
             borderTopColor: theme.border,
             transform: [
               {
-                translateY: Animated.add(
-                  inputBarAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [300, 0],
-                  }),
-                  keyboardHeight
-                ),
+                translateY: inputBarAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1000, 0],
+                }),
               },
             ],
             opacity: inputBarAnim,
@@ -501,7 +509,8 @@ export default function App() {
             </View>
           </View>
         </Animated.View>
-      </SafeAreaView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -589,14 +598,22 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "500",
   },
+  taskContainer: {
+    flex: 1,
+  },
   taskList: {
+    flexGrow: 1,
     paddingBottom: 120,
   },
   emptyContainer: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 60,
+    paddingHorizontal: 20,
   },
   emptyIcon: {
     marginBottom: 20,

@@ -20,7 +20,7 @@ const Task = (props) => {
         styles.item,
         {
           backgroundColor: theme.cardBackground || (isDarkMode ? "#252526" : "#F5F5F5"),
-          borderLeftColor: props.theme?.accent || "#99FFE4",
+          borderLeftColor: theme.accent || "#99FFE4",
         },
         isPressed && {
           backgroundColor: isDarkMode ? "#2D2D30" : "#E8E8E8",
@@ -52,7 +52,7 @@ const Task = (props) => {
             <Ionicons
               name="ellipse-outline"
               size={24}
-              color={props.theme?.checkboxBorder || (isDarkMode ? "#858585" : "#6B6B6B")}
+              color={theme.checkboxBorder || (isDarkMode ? "#858585" : "#6B6B6B")}
             />
           </View>
         )}
@@ -92,7 +92,7 @@ const Task = (props) => {
               {
                 backgroundColor:
                   props.completed
-                    ? theme.accent
+                    ? theme.accent || "#99FFE4"
                     : theme.deleteButtonBg || (isDarkMode ? "#252526" : "#F5F5F5"),
               },
             ]}
@@ -118,7 +118,7 @@ const Task = (props) => {
 const styles = StyleSheet.create({
   item: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingVertical: 18,
     paddingHorizontal: 18,
     borderRadius: 14,
@@ -133,9 +133,8 @@ const styles = StyleSheet.create({
   },
   checkboxContainer: {
     marginRight: 14,
-    justifyContent: "flex-start",
+    justifyContent: "center",
     alignItems: "center",
-    paddingTop: 2,
   },
   checkbox: {
     width: 28,
@@ -167,9 +166,8 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
   deleteButton: {
-    justifyContent: "flex-start",
+    justifyContent: "center",
     alignItems: "center",
-    paddingTop: 2,
   },
   deleteButtonBg: {
     width: 32,
