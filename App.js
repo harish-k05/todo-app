@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Task from "./components/Task";
 
@@ -68,17 +69,35 @@ const darkTheme = {
 
 export default function App() {
   const systemColorScheme = useColorScheme();
-  const [isDarkMode, setIsDarkMode] = useState(systemColorScheme === "dark");
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Prefer Appearance.getColorScheme for initial mount, fallback to hook
+    const appearanceScheme = Appearance.getColorScheme();
+    if (appearanceScheme === "dark" || appearanceScheme === "light") {
+      return appearanceScheme === "dark";
+    }
+    return systemColorScheme === "dark";
+  });
   const [tasks, setTasks] = useState([]);
   const [isInputVisible, setIsInputVisible] = useState(false);
   const [newTaskText, setNewTaskText] = useState("");
   const [editingTask, setEditingTask] = useState(null);
+  // null = undated task
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const inputBarAnim = useRef(new Animated.Value(0)).current;
   const keyboardHeight = useRef(new Animated.Value(0)).current;
   const inputRef = useRef(null);
 
   const theme = isDarkMode ? darkTheme : lightTheme;
+
+  // Helper: get local date string as YYYY-MM-DD (no timezone shift)
+  const getLocalISODate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
 
   useEffect(() => {
     // Load tasks from storage (if AsyncStorage is available)
@@ -91,8 +110,10 @@ export default function App() {
     }).start();
 
     // Listen to system theme changes
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
-      setIsDarkMode(colorScheme === "dark");
+    const themeSubscription = Appearance.addChangeListener(({ colorScheme }) => {
+      if (colorScheme === "dark" || colorScheme === "light") {
+        setIsDarkMode(colorScheme === "dark");
+      }
     });
 
     // Keyboard listeners
@@ -119,7 +140,7 @@ export default function App() {
     );
 
     return () => {
-      subscription.remove();
+      themeSubscription.remove();
       keyboardWillShowListener.remove();
       keyboardWillHideListener.remove();
     };
@@ -131,21 +152,39 @@ export default function App() {
       if (storedTasks) {
         const parsedTasks = JSON.parse(storedTasks);
         if (Array.isArray(parsedTasks)) {
-          setTasks(parsedTasks);
+          // Migrate older shapes to: { id, text, completed, dueDate, pinned }
+          const migratedTasks = parsedTasks.map((task) => {
+            const legacyDate = task.date ?? null;
+            return {
+              id: String(task.id),
+              text: String(task.text ?? ""),
+              completed: !!task.completed,
+              dueDate:
+                typeof task.dueDate === "string"
+                  ? task.dueDate
+                  : typeof legacyDate === "string"
+                  ? legacyDate
+                  : null,
+              pinned: !!task.pinned,
+            };
+          });
+          setTasks(migratedTasks);
         } else {
-          console.warn('Invalid tasks format in storage');
+          console.warn("Invalid tasks format in storage");
           setTasks([]);
         }
       } else {
-        // Default tasks for first time users
+        // Default tasks for first time users with dates
+        const today = getLocalISODate(new Date());
+        const tomorrow = getLocalISODate(new Date(Date.now() + 86400000));
         const defaultTasks = [
-          { id: "1", text: "Buy new sweatshirt", completed: true },
-          { id: "2", text: "Begin promotional phase", completed: true },
-          { id: "3", text: "Read an article", completed: false },
-          { id: "4", text: "Try not to fall asleep", completed: false },
-          { id: "5", text: "Watch 'Sherlock'", completed: false },
-          { id: "6", text: "Begin QA for the product", completed: false },
-          { id: "7", text: "Go for a walk", completed: false },
+          { id: "1", text: "Buy new sweatshirt", completed: true,  dueDate: today,    pinned: false },
+          { id: "2", text: "Begin promotional phase", completed: true,  dueDate: today,    pinned: false },
+          { id: "3", text: "Read an article",          completed: false, dueDate: today,    pinned: false },
+          { id: "4", text: "Try not to fall asleep",   completed: false, dueDate: tomorrow, pinned: false },
+          { id: "5", text: "Watch 'Sherlock'",         completed: false, dueDate: tomorrow, pinned: false },
+          { id: "6", text: "Begin QA for the product", completed: false, dueDate: tomorrow, pinned: false },
+          { id: "7", text: "Go for a walk",            completed: false, dueDate: null,     pinned: true  },
         ];
         setTasks(defaultTasks);
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(defaultTasks));
@@ -170,6 +209,20 @@ export default function App() {
     }
   };
 
+  const handleTogglePin = (taskId) => {
+    const updatedTasks = tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            // keep dueDate unchanged so unpin restores original date
+            pinned: !task.pinned,
+          }
+        : task
+    );
+    setTasks(updatedTasks);
+    saveTasks(updatedTasks);
+  };
+
   const handleToggleTask = (taskId) => {
     const updatedTasks = tasks.map((task) =>
       task.id === taskId ? { ...task, completed: !task.completed } : task
@@ -179,25 +232,9 @@ export default function App() {
   };
 
   const handleDeleteTask = (taskId) => {
-    Alert.alert(
-      "Delete Task",
-      "Are you sure you want to delete this task?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            const updatedTasks = tasks.filter((task) => task.id !== taskId);
-            setTasks(updatedTasks);
-            saveTasks(updatedTasks);
-          },
-        },
-      ]
-    );
+    const updatedTasks = tasks.filter((task) => task.id !== taskId);
+    setTasks(updatedTasks);
+    saveTasks(updatedTasks);
   };
 
   const handleDeleteAll = () => {
@@ -227,6 +264,7 @@ export default function App() {
   const handleEditTask = (task) => {
     setEditingTask(task);
     setNewTaskText(task.text);
+    setSelectedDate(task.dueDate ?? null);
     setIsInputVisible(true);
     setTimeout(() => {
       inputRef.current?.focus();
@@ -236,7 +274,13 @@ export default function App() {
   const handleSaveEdit = () => {
     if (newTaskText.trim() && editingTask) {
       const updatedTasks = tasks.map((task) =>
-        task.id === editingTask.id ? { ...task, text: newTaskText.trim() } : task
+        task.id === editingTask.id
+          ? {
+              ...task,
+              text: newTaskText.trim(),
+              dueDate: task.pinned ? null : selectedDate ?? null,
+            }
+          : task
       );
       setTasks(updatedTasks);
       saveTasks(updatedTasks);
@@ -250,6 +294,8 @@ export default function App() {
         id: Date.now().toString(),
         text: newTaskText.trim(),
         completed: false,
+        dueDate: selectedDate ?? null,
+        pinned: false,
       };
       const updatedTasks = [...tasks, newTask];
       setTasks(updatedTasks);
@@ -262,12 +308,16 @@ export default function App() {
     Keyboard.dismiss();
     setNewTaskText("");
     setEditingTask(null);
+    setSelectedDate(null);
+    setShowDatePicker(false);
     setIsInputVisible(false);
   };
 
   const handleOpenAddInput = () => {
     setEditingTask(null);
     setNewTaskText("");
+    setSelectedDate(null);
+    setShowDatePicker(false);
     setIsInputVisible(true);
     setTimeout(() => {
       inputRef.current?.focus();
@@ -301,6 +351,55 @@ export default function App() {
     return { day, month, year, dayName };
   };
 
+  // Group tasks by dueDate and separate pinned / undated tasks
+  const groupedTasks = tasks.reduce(
+    (acc, task) => {
+      if (task.pinned) {
+        acc.pinned.push(task);
+      } else if (task.dueDate) {
+        if (!acc.byDate[task.dueDate]) {
+          acc.byDate[task.dueDate] = [];
+        }
+        acc.byDate[task.dueDate].push(task);
+      } else {
+        acc.undated.push(task);
+      }
+      return acc;
+    },
+    { pinned: [], byDate: {}, undated: [] }
+  );
+
+  // Sort dates chronologically (earliest first)
+  const sortedDates = Object.keys(groupedTasks.byDate).sort();
+
+  // Friendly date labels (timezone-safe, based on YYYY-MM-DD string)
+  const formatDateLabel = (dateString) => {
+    const today = new Date();
+
+    const shiftDays = (baseDate, days) => {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + days);
+      return d;
+    };
+
+    const todayStr = getLocalISODate(today);
+    const tomorrowStr = getLocalISODate(shiftDays(today, 1));
+    const yesterdayStr = getLocalISODate(shiftDays(today, -1));
+
+    if (dateString === todayStr) return "TODAY";
+    if (dateString === tomorrowStr) return "TOMORROW";
+    if (dateString === yesterdayStr) return "Yesterday";
+
+    const d = new Date(dateString + "T00:00:00");
+    return d
+      .toLocaleDateString("en-US", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+      .toUpperCase();
+  };
+
   const { day, month, year, dayName } = getCurrentDate();
   const completedCount = tasks.filter((task) => task.completed).length;
   const totalCount = tasks.length;
@@ -315,9 +414,8 @@ export default function App() {
   );
 
   const toggleTheme = () => {
-    setIsDarkMode(!isDarkMode);
+    setIsDarkMode((prev) => !prev);
   };
-
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -400,19 +498,63 @@ export default function App() {
         ) : (
           <View style={styles.taskContainer}>
             <FlatList
-              data={tasks}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <Task
-                  text={item.text}
-                  completed={item.completed}
-                  onToggle={() => handleToggleTask(item.id)}
-                  onDelete={() => handleDeleteTask(item.id)}
-                  onEdit={() => handleEditTask(item)}
-                  theme={theme}
-                  isDarkMode={isDarkMode}
-                />
-              )}
+              data={[
+                // Pinned section
+                ...(groupedTasks.pinned.length > 0
+                  ? [
+                      {
+                        type: "pinned",
+                        title: "PINNED",
+                        items: groupedTasks.pinned,
+                      },
+                    ]
+                  : []),
+                // Dated groups
+                ...sortedDates.map((date) => ({
+                  type: "date",
+                  title: formatDateLabel(date),
+                  date,
+                  items: groupedTasks.byDate[date],
+                })),
+                // Undated section (after all dated tasks)
+                ...(groupedTasks.undated.length > 0
+                  ? [
+                      {
+                        type: "undated",
+                        title: "NO DATE",
+                        items: groupedTasks.undated,
+                      },
+                    ]
+                  : []),
+              ]}
+              keyExtractor={(item, index) => item.type + "-" + item.title + "-" + index}
+              renderItem={({ item }) => {
+                if (item.type === "pinned" || item.type === "date" || item.type === "undated") {
+                  return (
+                    <View>
+                      <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>
+                        {item.title}
+                      </Text>
+                      {item.items.map((task) => (
+                        <Task
+                          key={task.id}
+                          text={task.text}
+                          completed={task.completed}
+                          pinned={task.pinned}
+                          dueDate={task.dueDate}
+                          onToggle={() => handleToggleTask(task.id)}
+                          onDelete={() => handleDeleteTask(task.id)}
+                          onEdit={() => handleEditTask(task)}
+                          onPin={() => handleTogglePin(task.id)}
+                          theme={theme}
+                          isDarkMode={isDarkMode}
+                        />
+                      ))}
+                    </View>
+                  );
+                }
+                return null;
+              }}
               ItemSeparatorComponent={() => <View style={styles.taskSeparator} />}
               contentContainerStyle={styles.taskList}
               showsVerticalScrollIndicator={false}
@@ -464,6 +606,7 @@ export default function App() {
               </Text>
             </View>
             <View style={styles.inputBarContent}>
+              {/* First row: text input */}
               <TextInput
                 ref={inputRef}
                 style={[
@@ -482,33 +625,122 @@ export default function App() {
                 returnKeyType="done"
                 blurOnSubmit={false}
               />
-              <View style={styles.inputBarButtons}>
-                <TouchableOpacity
-                  style={[styles.inputCancelButton, { backgroundColor: theme.cancelButtonBg }]}
-                  onPress={handleCloseInput}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close" size={20} color={theme.textSecondary} />
-                </TouchableOpacity>
+
+              {/* Second row: date + buttons */}
+              <View style={styles.inputBarRow}>
                 <TouchableOpacity
                   style={[
-                    styles.inputSaveButton,
-                    { 
+                    styles.datePickerButton,
+                    {
                       backgroundColor: theme.accent,
-                      shadowColor: theme.accent,
                     },
-                    !newTaskText.trim() && styles.inputSaveButtonDisabled,
                   ]}
-                  onPress={editingTask ? handleSaveEdit : handleAddTask}
-                  disabled={!newTaskText.trim()}
+                  onPress={() => setShowDatePicker(!showDatePicker)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="checkmark" size={20} color={isDarkMode ? "#1E1E1E" : "#1E1E1E"} />
+                  <Text style={styles.datePickerButtonText}>
+                    {selectedDate === null
+                      ? "No date"
+                      : selectedDate === getLocalISODate(new Date())
+                      ? "TODAY"
+                      : selectedDate === getLocalISODate(new Date(Date.now() + 86400000))
+                      ? "TOMORROW"
+                      : formatDateLabel(selectedDate)}
+                  </Text>
                 </TouchableOpacity>
+
+                <View style={styles.inputBarButtons}>
+                  <TouchableOpacity
+                    style={[styles.inputCancelButton, { backgroundColor: theme.cancelButtonBg }]}
+                    onPress={handleCloseInput}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={20} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.inputSaveButton,
+                      {
+                        backgroundColor: theme.accent,
+                        shadowColor: theme.accent,
+                      },
+                      !newTaskText.trim() && styles.inputSaveButtonDisabled,
+                    ]}
+                    onPress={editingTask ? handleSaveEdit : handleAddTask}
+                    disabled={!newTaskText.trim()}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={isDarkMode ? "#1E1E1E" : "#1E1E1E"}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </View>
         </Animated.View>
+        
+        {/* Date Picker Modal */}
+        {showDatePicker && (
+          <View style={[styles.datePickerModal, { backgroundColor: theme.backdrop }]}>
+            <View style={[styles.datePickerContent, { backgroundColor: theme.cardBackground }]}>
+              <Text style={[styles.datePickerTitle, { color: theme.text }]}>Select Date</Text>
+
+              <DateTimePicker
+                mode="date"
+                display={Platform.OS === "ios" ? "spinner" : "calendar"}
+                value={
+                  selectedDate
+                    ? new Date(selectedDate + "T00:00:00")
+                    : new Date()
+                }
+                onChange={(event, date) => {
+                  if (event.type === "dismissed") {
+                    if (Platform.OS !== "ios") {
+                      setShowDatePicker(false);
+                    }
+                    return;
+                  }
+                  if (date) {
+                    const iso = getLocalISODate(date);
+                    setSelectedDate(iso);
+                  }
+                  if (Platform.OS !== "ios") {
+                    setShowDatePicker(false);
+                  }
+                }}
+              />
+
+              <View style={styles.dateOptions}>
+                <TouchableOpacity
+                  style={[
+                    styles.dateOption,
+                    selectedDate === null && styles.dateOptionSelected,
+                  ]}
+                  onPress={() => setSelectedDate(null)}
+                >
+                  <Text
+                    style={[
+                      styles.dateOptionText,
+                      { color: selectedDate === null ? theme.accent : theme.text },
+                    ]}
+                  >
+                    No date
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.datePickerClose, { backgroundColor: theme.accent }]}
+                onPress={() => setShowDatePicker(false)}
+              >
+                <Text style={styles.datePickerCloseText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -659,14 +891,14 @@ const styles = StyleSheet.create({
   },
   inputBar: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === "ios" ? 30 : 30,
-    minHeight: 140,
+    paddingTop: 22,
+    paddingBottom: Platform.OS === "ios" ? 36 : 32,
+    minHeight: 150,
   },
   inputBarHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 20,
     gap: 8,
   },
   inputBarTitle: {
@@ -674,18 +906,89 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   inputBarContent: {
+    flexDirection: "column",
+    gap: 14,
+  },
+  inputBarRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+    marginTop: 10,
+    gap: 12,
   },
   inputBarInput: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    fontSize: 16,
+    maxHeight: 120,
+  },
+  datePickerButton: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 80,
+  },
+  datePickerButtonText: {
+    color: "#1E1E1E",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  datePickerModal: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  datePickerContent: {
+    borderRadius: 20,
+    padding: 24,
+    width: "80%",
+    maxWidth: 320,
+  },
+  datePickerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  dateOptions: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  dateOption: {
     paddingVertical: 12,
     paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+  dateOptionSelected: {
+    borderColor: "#99FFE4",
+    backgroundColor: "#F5FFF9",
+  },
+  dateOptionText: {
     fontSize: 16,
-    maxHeight: 100,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  datePickerClose: {
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  datePickerCloseText: {
+    color: "#1E1E1E",
+    fontSize: 16,
+    fontWeight: "600",
   },
   inputBarButtons: {
     flexDirection: "row",
@@ -715,7 +1018,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
+  sectionHeader: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 10,
+    marginBottom: 6,
+    marginLeft: 4,
+    textTransform: 'uppercase',
+  },
   taskSeparator: {
-    height: 14,
+    height: 10,
   },
 });

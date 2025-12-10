@@ -19,8 +19,12 @@ const Task = (props) => {
       style={[
         styles.item,
         {
-          backgroundColor: theme.cardBackground || (isDarkMode ? "#252526" : "#F5F5F5"),
-          borderLeftColor: theme.accent || "#99FFE4",
+          backgroundColor: props.pinned 
+            ? (theme.accent || "#99FFE4") 
+            : (theme.cardBackground || (isDarkMode ? "#252526" : "#F5F5F5")),
+          borderLeftColor: props.pinned 
+            ? "#1E1E1E" 
+            : (theme.accent || "#99FFE4"),
         },
         isPressed && {
           backgroundColor: isDarkMode ? "#2D2D30" : "#E8E8E8",
@@ -33,7 +37,29 @@ const Task = (props) => {
       activeOpacity={0.85}
       delayLongPress={500}
     >
-      {/* Checkbox on Left */}
+      {/* Pin Button */}
+      <TouchableOpacity
+        style={styles.pinButton}
+        onPress={(e) => {
+          e.stopPropagation();
+          if (props.onPin) {
+            props.onPin();
+          }
+        }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.6}
+      >
+        <Ionicons
+          name={props.pinned ? "pushpin" : "pushpin-outline"}
+          size={20}
+          color={props.pinned 
+            ? "#1E1E1E" 
+            : (theme.textTertiary || (isDarkMode ? "#858585" : "#6B6B6B"))
+          }
+        />
+      </TouchableOpacity>
+
+      {/* Checkbox */}
       <View style={styles.checkboxContainer}>
         {props.completed ? (
           <View
@@ -58,22 +84,26 @@ const Task = (props) => {
         )}
       </View>
 
-      {/* Task Text in Middle */}
-      <Text
-        style={[
-          styles.itemText,
-          {
-            color: props.completed
-              ? theme.textTertiary || (isDarkMode ? "#858585" : "#6B6B6B")
-              : theme.text || (isDarkMode ? "#D4D4D4" : "#1E1E1E"),
-          },
-          props.completed && styles.itemTextCompleted,
-        ]}
-      >
-        {props.text}
-      </Text>
+      {/* Task Text */}
+      <View style={styles.textContainer}>
+        <Text
+          style={[
+            styles.itemText,
+            {
+              color: props.completed
+                ? theme.textTertiary || (isDarkMode ? "#858585" : "#6B6B6B")
+                : props.pinned
+                  ? "#1E1E1E"
+                  : theme.text || (isDarkMode ? "#D4D4D4" : "#1E1E1E"),
+            },
+            props.completed && styles.itemTextCompleted,
+          ]}
+        >
+          {props.text}
+        </Text>
+      </View>
 
-      {/* Delete Button on Right */}
+      {/* Delete Button */}
       {props.onDelete && (
         <TouchableOpacity
           style={styles.deleteButton}
@@ -119,17 +149,23 @@ const styles = StyleSheet.create({
   item: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 18,
+    paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 14,
     marginHorizontal: 0,
+    marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
     borderLeftWidth: 4,
-    minHeight: 60,
+    minHeight: 50,
+  },
+  pinButton: {
+    marginRight: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
   checkboxContainer: {
     marginRight: 14,
@@ -153,13 +189,20 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  itemText: {
+  textContainer: {
     flex: 1,
+    marginRight: 12,
+  },
+  itemText: {
     fontSize: 16,
     fontWeight: "500",
     lineHeight: 22,
-    marginRight: 12,
     flexShrink: 1,
+  },
+  dateText: {
+    fontSize: 12,
+    fontWeight: "400",
+    marginTop: 2,
   },
   itemTextCompleted: {
     textDecorationLine: "line-through",
